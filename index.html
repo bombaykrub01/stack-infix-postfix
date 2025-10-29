@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stack Visualizer — Infix ↔ Postfix</title>
+<style>
+  body{font-family:Arial, sans-serif;background:#f3f6fb;padding:20px;color:#222;}
+  h1{margin-bottom:16px;}
+  .card{background:#fff;padding:16px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);margin-bottom:16px;}
+  input,select,button{padding:8px;margin:4px 0;border-radius:6px;border:1px solid #ccc;font-size:14px;}
+  button.primary{background:#0066cc;color:#fff;border:none;cursor:pointer;}
+  button.small{background:#f0f0f0;cursor:pointer;}
+  table{width:100%;border-collapse:collapse;margin-top:8px;}
+  th,td{border:1px solid #ddd;padding:6px;font-family:monospace;font-size:13px;}
+  th{background:#f0f6ff;}
+  tr.current{background:linear-gradient(90deg,rgba(0,102,204,0.1),rgba(179,217,255,0.05));}
+  .stack-display{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+  .stack-item{background:#e8f2ff;border:1px solid #bfe0ff;padding:4px 6px;border-radius:6px;}
+  .output-display{background:#f0fff6;border:1px solid #c6efda;padding:6px;border-radius:6px;font-family:monospace;}
+</style>
+</head>
+<body>
+<h1>Stack Expression Visualizer — Infix ↔ Postfix</h1>
+<div class="card">
+  <select id="mode">
+    <option value="infixToPostfix">Infix → Postfix</option>
+    <option value="postfixToInfix">Postfix → Infix</option>
+  </select>
+  <input id="expr" type="text" placeholder="กรอกสมการ: Infix เช่น A + B * C หรือ Postfix เช่น AB+C*">
+  <button id="runBtn" class="primary">Generate Steps</button>
+  <button id="clearBtn" class="small">Clear</button>
+  <div style="margin-top:8px;">
+    <div>Preview Infix: <span id="infixPreview">-</span></div>
+    <div>Preview Postfix: <span id="postfixPreview">-</span></div>
+  </div>
+</div>
+
+<div class="card" id="animCard" style="display:none">
+  <table id="stepsTable">
+    <thead><tr><th>Step</th><th>Token</th><th>Action</th><th>Stack</th><th>Output</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div style="margin-top:6px;">
+    <div>Stack: <span id="stackVisual"></span></div>
+    <div>Output: <span id="outputVisual"></span></div>
+  </div>
+</div>
+
+<div class="card" id="resultCard" style="display:none">
+  <div>Final Infix: <span id="finalInfix">-</span></div>
+  <div>Final Postfix: <span id="finalPostfix">-</span></div>
+</div>
+
+<script>
+function tokenizeInfix(s){return s.match(/[A-Za-z0-9]+|[()+\-*/^]/g)||[];}
+function tokenizePostfix(s){return s.trim().includes(' ')?s.trim().split(/\s+/):s.trim().split('').filter(Boolean);}
+
+function postfixToInfixString(postfix){
+  if(!postfix) return '';
+  const tokens = postfix.trim().split(/\s+/);
+  const ops = new Set(['+','-','*','/','^']);
+  const s=[];
+  for(let t of tokens){
+    if(!ops.has(t)) s.push(t);
+    else {const b=s.pop(); const a=s.pop(); s.push(`(${a} ${t} ${b})`);}
+  }
+  return s.length===1?s[0]:'Invalid';
+}
+
+function generateInfixToPostfixSteps(expr){
+  const precedence={'+' :1,'-':1,'*':2,'/':2,'^':3};
+  const tokens = tokenizeInfix(expr); const stack=[]; const output=[]; const steps=[];
+  if(tokens.length===0) return {steps,finalPostfix:'',finalInfix:'',error:'Empty'};
+  tokens.forEach((token,i)=>{
+    steps.push({step:i+1,token,action:'read',stack:stack.slice(),output:output.slice()});
+    if(/^[A-Za-z0-9]+$/.test(token)){output.push(token);steps.push({step:i+1.1,token,action:'output operand',stack:stack.slice(),output:output.slice()});}
+    else if(token==='('){stack.push(token);steps.push({step:i+1.2,token,action:'push (',stack:stack.slice(),output:output.slice()});}
+    else if(token===')'){while(stack.length&&stack[stack.length-1]!=='('){const op=stack.pop();output.push(op);steps.push({step:i+1.3,token:op,action:'pop -> output',stack:stack.slice(),output:output.slice()});} if(stack.length&&stack[stack.length-1]==='('){stack.pop();steps.push({step:i+1.4,token:'(',action:'pop (',stack:stack.slice(),output:output.slice()});}}
+    else{while(stack.length&&precedence[stack[stack.length-1]]>=precedence[token]){const op=stack.pop();output.push(op);steps.push({step:i+1.5,token:op,action:'pop -> output',stack:stack.slice(),output:output.slice()});} stack.push(token);steps.push({step:i+1.6,token,action:'push operator',stack:stack.slice(),output:output.slice()});}
+  });
+  while(stack.length){const op=stack.pop();output.push(op);steps.push({step:tokens.length+1,token:op,action:'pop remaining -> output',stack:stack.slice(),output:output.slice()});}
+  const finalPostfix=output.join(' ');
+  const finalInfix=postfixToInfixString(finalPostfix);
+  return {steps:steps.sort((a,b)=>a.step-b.step),finalPostfix,finalInfix};
+}
+
+function generatePostfixToInfixSteps(expr){
+  const tokens = tokenizePostfix(expr); const stack=[]; const steps=[];
+  tokens.forEach((token,i)=>{
+    steps.push({step:i+1,token,action:'read',stack:stack.slice(),output:stack.slice()});
+    if(!'+-*/^'.includes(token)){stack.push(token);steps.push({step:i+1.1,token,action:'push operand',stack:stack.slice(),output:stack.slice()});}
+    else{const b=stack.pop(); const a=stack.pop(); const exprStr=`(${a} ${token} ${b})`; steps.push({step:i+1.15,token,action:`pop ${a},${b}`,stack:stack.slice(),output:stack.slice()}); stack.push(exprStr);steps.push({step:i+1.2,token,action:'push subexpr',stack:stack.slice(),output:stack.slice()});}
+  });
+  const finalInfix=stack.length===1?stack[0]:'Invalid Postfix Expression';
+  const finalPostfix=tokens.join(' ');
+  return {steps:steps.sort((a,b)=>a.step-b.step),finalPostfix,finalInfix};
+}
+
+/* UI */
+let currentSteps=[],currentIndex=0;
+const runBtn=document.getElementById('runBtn');
+const clearBtn=document.getElementById('clearBtn');
+const modeSel=document.getElementById('mode');
+const exprInput=document.getElementById('expr');
+const animCard=document.getElementById('animCard');
+const stepsTableBody=document.querySelector('#stepsTable tbody');
+const stackVisual=document.getElementById('stackVisual');
+const outputVisual=document.getElementById('outputVisual');
+const infixPreview=document.getElementById('infixPreview');
+const postfixPreview=document.getElementById('postfixPreview');
+const resultCard=document.getElementById('resultCard');
+const finalInfix=document.getElementById('finalInfix');
+const finalPostfix=document.getElementById('finalPostfix');
+
+runBtn.addEventListener('click',generate);
+clearBtn.addEventListener('click',()=>{
+  exprInput.value='';infixPreview.textContent='-';postfixPreview.textContent='-';
+  animCard.style.display='none'; resultCard.style.display='none';
+});
+
+function generate(){
+  const expr=exprInput.value.trim();const mode=modeSel.value;
+  if(!expr){alert('กรุณากรอกสมการ');return;}
+  let data;
+  if(mode==='infixToPostfix') data=generateInfixToPostfixSteps(expr);
+  else data=generatePostfixToInfixSteps(expr);
+  currentSteps=data.steps||[];
+  infixPreview.textContent=data.finalInfix||'-';
+  postfixPreview.textContent=data.finalPostfix||'-';
+  stepsTableBody.innerHTML='';
+  currentSteps.forEach((s,idx)=>{
+    const tr=document.createElement('tr'); tr.dataset.index=idx;
+    tr.innerHTML=`<td>${idx+1}</td><td>${s.token}</td><td>${s.action}</td><td>${s.stack.join(' | ')}</td><td>${(s.output||[]).join(' ')}</td>`;
+    stepsTableBody.appendChild(tr);
+  });
+  animCard.style.display=currentSteps.length?'block':'none';
+  resultCard.style.display='block';
+  finalInfix.textContent=data.finalInfix||'-';
+  finalPostfix.textContent=data.finalPostfix||'-';
+  if(currentSteps.length) stepTo(0);
+}
+
+function stepTo(i){
+  if(currentSteps.length===0)return;
+  if(i<0)i=0;if(i>currentSteps.length-1)i=currentSteps.length-1;
+  currentIndex=i;
+  document.querySelectorAll('#stepsTable tbody tr').forEach(tr=>tr.classList.remove('current'));
+  const row=document.querySelector(`#stepsTable tbody tr[data-index="${i}"]`);
+  if(row) row.classList.add('current');
+  const s=currentSteps[i];
+  renderStackAndOutput(s);
+}
+
+function renderStackAndOutput(s){
+  stackVisual.innerHTML='';
+  (s.stack||[]).forEach(it=>{const d=document.createElement('span');d.className='stack-item';d.textContent=it;stackVisual.appendChild(d);});
+  outputVisual.textContent=(s.output&&s.output.length)?s.output.join(' '):(s.stack&&s.stack.length?s.stack.join(' '):'-');
+}
+</script>
+</body>
+</html>
